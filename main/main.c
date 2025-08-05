@@ -36,74 +36,117 @@
 #include "calibrate.h"
 #include "common.h"
 
-#define I2C_MASTER_NUM         I2C_NUM_0
-#define I2C_MASTER_SCL_IO      22    // Change according to your wiring
-#define I2C_MASTER_SDA_IO      21    // Change according to your wiring
-#define I2C_MASTER_FREQ_HZ     400000
-#define MPU9250_ADDR           0x68  // AD0 low = 0x68, AD0 high = 0x69
-#define WHO_AM_I_REG           0x75
+static const char *TAG = "main";
 
-static const char *TAG = "WHO_AM_I_TEST";
+#define I2C_MASTER_NUM I2C_NUM_0 /*!< I2C port number for master dev */
 
-esp_err_t i2c_master_init(void)
+calibration_t cal = {
+    .mag_offset = {.x = 25.183594, .y = 57.519531, .z = -62.648438},
+    .mag_scale = {.x = 1.513449, .y = 1.557811, .z = 1.434039},
+    .accel_offset = {.x = 0.020900, .y = 0.014688, .z = -0.002580},
+    .accel_scale_lo = {.x = -0.992052, .y = -0.990010, .z = -1.011147},
+    .accel_scale_hi = {.x = 1.013558, .y = 1.011903, .z = 1.019645},
+
+    .gyro_bias_offset = {.x = 0.303956, .y = -1.049768, .z = -0.403782}};
+
+/**
+ * Transformation:
+ *  - Rotate around Z axis 180 degrees
+ *  - Rotate around X axis -90 degrees
+ * @param  {object} s {x,y,z} sensor
+ * @return {object}   {x,y,z} transformed
+ */
+static void transform_accel_gyro(vector_t *v)
 {
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = I2C_MASTER_SDA_IO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_io_num = I2C_MASTER_SCL_IO,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = I2C_MASTER_FREQ_HZ
-    };
-    ESP_ERROR_CHECK(i2c_param_config(I2C_MASTER_NUM, &conf));
-    return i2c_driver_install(I2C_MASTER_NUM, conf.mode,
-                               0, 0, 0);
+  float x = v->x;
+  float y = v->y;
+  float z = v->z;
 
-  return ESP_OK;
+  v->x = -x;
+  v->y = -z;
+  v->z = -y;
 }
 
-esp_err_t mpu9250_read_whoami(uint8_t *whoami)
+/**
+ * Transformation: to get magnetometer aligned
+ * @param  {object} s {x,y,z} sensor
+ * @return {object}   {x,y,z} transformed
+ */
+static void transform_mag(vector_t *v)
 {
-    uint8_t reg = WHO_AM_I_REG;
+  float x = v->x;
+  float y = v->y;
+  float z = v->z;
 
-    // Write register address
-    esp_err_t ret = i2c_master_write_to_device(I2C_MASTER_NUM,
-                                               MPU9250_ADDR,
-                                               &reg, 1,
-                                               pdMS_TO_TICKS(1000));
-    if (ret != ESP_OK) return ret;
+  v->x = -y;
+  v->y = z;
+  v->z = -x;
+}
 
-    // Read one byte from that register
-    return i2c_master_read_from_device(I2C_MASTER_NUM,
-                                       MPU9250_ADDR,
-                                       whoami, 1,
-                                       pdMS_TO_TICKS(1000));
+void run_imu(void)
+{
+
+  ahrs_init(SAMPLE_FREQ_Hz, 0.8);
+
+  uint64_t i = 0;
+  for (uint32_t j = 0; j < 100; j++)
+  {
+    vector_t va, vg, vm;
+
+    // Get the Accelerometer, Gyroscope and Magnetometer values.
+    ESP_ERROR_CHECK(get_accel_gyro_mag(&va, &vg, &vm));
+
+    // Transform these values to the orientation of our device.
+    transform_accel_gyro(&va);
+    transform_accel_gyro(&vg);
+    transform_mag(&vm);
+
+    ESP_LOGI(TAG, "Gyro: X=%f, Y=%f, Z=%f (deg/s)", vg.x, vg.y, vg.z);
+
+    // Apply the AHRS algorithm
+    /*ahrs_update(DEG2RAD(vg.x), DEG2RAD(vg.y), DEG2RAD(vg.z),
+                va.x, va.y, va.z,
+                vm.x, vm.y, vm.z);
+
+    // Print the data out every 10 items
+    if (i++ % 10 == 0)
+    {
+      float temp;
+      ESP_ERROR_CHECK(get_temperature_celsius(&temp));
+
+      float heading, pitch, roll;
+      ahrs_get_euler_in_degrees(&heading, &pitch, &roll);
+      ESP_LOGI(TAG, "heading: %2.3f°, pitch: %2.3f°, roll: %2.3f°, Temp %2.3f°C", heading, pitch, roll, temp);
+
+      // Make the WDT happy
+      vTaskDelay(0);
+    }*/
+
+    vTaskDelay(100 / portTICK_PERIOD_MS); // 20Hz updates
+  }
+}
+
+static void imu_task(void *arg)
+{
+
+#ifdef CONFIG_CALIBRATION_MODE
+  calibrate_gyro();
+  calibrate_accel();
+  calibrate_mag();
+#else
+  run_imu();
+#endif
+
+  // Exit
+  vTaskDelay(100 / portTICK_PERIOD_MS);
+  i2c_driver_delete(I2C_MASTER_NUM);
+
+  vTaskDelete(NULL);
 }
 
 void app_main(void)
 {
-    ESP_ERROR_CHECK(i2c_master_init());
-
-    uint8_t id;
-    esp_err_t ret = mpu9250_read_whoami(&id);
-
-    if (ret == ESP_OK)
-    {
-        ESP_LOGI(TAG, "WHO_AM_I = 0x%02X", id);
-        if (id == 0x71) {
-            ESP_LOGI(TAG, "MPU9250 detected successfully!");
-        } else {
-            ESP_LOGW(TAG, "Unexpected WHO_AM_I value");
-        }
-    }
-    else
-    {
-        ESP_LOGE(TAG, "Failed to read WHO_AM_I register");
-    }
-
-    // Stop here
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
+  i2c_mpu9250_init(&cal);
+  // start i2c task
+  xTaskCreate(imu_task, "imu_task", 4096, NULL, 10, NULL);
 }
-

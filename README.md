@@ -1,77 +1,77 @@
-# MPU9250 C driver for ESP8266 and ESP32
+# MPU9250 Driver for ESP32 with I²C Debug Logging
 
-This contains a driver for the [MPU9250](https://www.invensense.com/products/motion-tracking/9-axis/mpu-9250/),
-a Nine-Axis (Gyro + Accelerometer + Compass) Motion Processing Unit. It also contains the
-[Madgwick AHRS](http://x-io.co.uk/open-source-imu-and-ahrs-algorithms/) algorithm.
+This project contains an MPU9250 (9-axis IMU) driver for **ESP32** with integrated I²C debug logging.  
+It initializes and configures the gyroscope, accelerometer, and magnetometer, then outputs real-time sensor readings.  
+The I²C communication process has been made transparent by adding detailed debug logs for register reads/writes.
 
-The MPU9250 uses the i2c bus.
+The code uses:
+- **ESP-IDF**
+- **FreeRTOS**
+- Custom I²C helper functions (`i2c-easy.c`)
+- MPU9250 + AK8963 initialization and calibration routines
 
-The project has been configured for the ESP8266, but should also work on the ESP32 with a little
-configuration.
+---
 
-This code is based on the following: https://github.com/miniben-90/mpu9250
+## Hardware
 
-## Pin assignment
+- **MCU:** ESP32  
+- **IMU:** MPU9250 (Gyroscope, Accelerometer, Magnetometer)  
+- **Communication:** I²C @ 200 kHz  
 
-- master for ESP8266:
-  - GPIO14 is assigned as the data signal of i2c master port
-  - GPIO2 is assigned as the clock signal of i2c master port
+**Pin Assignment:**
+- **SDA:** GPIO21
+- **SCL:** GPIO22
 
-## Configure the project
+---
 
-```
-idf.py menuconfig
-```
+## Features
 
-A special "MPU9250 Configuration" menu is avialble. There is a calibration option which needs
-to be set the first time such that you can calibrate your MPU9250 device. See the #calibration
-section.
+- MPU9250 initialization with detailed register dumps
+- Magnetometer (AK8963) configuration
+- Gyroscope, Accelerometer, and Magnetometer calibration parameters applied at startup
+- Continuous gyro data reading loop with FreeRTOS task delay
+- I²C debug logging showing each read/write transaction
+- Limited sample mode (stop after N readings for testing)
 
-## Calibration
+---
 
-Each MPU9250 device will have different calibration parameters at different temperatures. You
-will need to calibrate your device for it to work accurately. Each component has different
-calibration requirements:
+## Build & Flash
 
-- Gyroscope: The gyroscope only needs the bias calculated. This measures the average noise
-  from the gyro, then uses it as a bias amount.
-- Accelerometer: This also calculates the bias. But also the average 'g' force needs to be
-  calculated.
-- Magnetometer: This calibration (based on [this](http://www.camelsoftware.com/2016/03/13/imu-maths-calculate-orientation-pt3/))
-  will only work for your location on Earth, give or take a hundred kilometers. The reason
-  is that it uses the Earth's magnetic field.
-
-See the `calibration.c` file for details.
-
-### Using the results
-
-You should consider increasing the monitor window's print buffer so that the large amount of printing for magnetometer does not override the other calibration output.
-
-Open the project configuration menu (`idf.py menuconfig`). Then go into `Example Configuration` menu.
-
-- You can choose whether or not to save command history into flash in `Store command history in flash` option.
-- You can set the maximum number of command line arguments under `Maximum number of command line arguments` option.
-- You can set the command line buffer length under `Command line buffer length` option.
-
-After running the calibration, **copy and paste the values printed by the calibration tool to main.c's cal variable.**
-
-## Build and Flash
-
-Build the project and flash it to the board, then run monitor tool to view serial output:
-
-```
+```bash
+idf.py set-target esp32
+idf.py build
 idf.py flash monitor
+
 ```
-
-(To exit the serial monitor, type `Ctrl-]`.)
-
-See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
-
 ## Example Output
+![Initialization & Configuration](Output1.PNG)
+![Gyroscope DataStream](output2.PNG)
 
-Below is an example of the output when _not_ in calibration mode.
+## How It Works
 
-```
-I (493280) main: heading: 138.749°, pitch: -0.508°, roll: -91.158°, Temp 24.163°C
-I (493341) main: heading: 138.746°, pitch: -0.532°, roll: -91.190°, Temp 24.019°C
-```
+### 1. Initialization
+- The **MPU9250** and **AK8963** are initialized via I²C.  
+- Register settings for:
+  - Scale ranges
+  - Offsets
+  - Calibration constants  
+  are applied at startup.
+
+---
+
+### 2. I²C Communication
+- All sensor reads/writes go through `i2c-easy.c` functions.
+- Debug logs show each command in the sequence:
+  1. **Start condition**
+  2. **Device address**
+  3. **Register address**
+  4. **Data bytes**
+  5. **ACK/NACK responses**
+  6. **Stop condition**
+
+---
+
+### 3. Gyroscope Loop
+- Reads **X, Y, Z** angular velocity in **deg/s**.
+- Updates every **100 ms** using `vTaskDelay()`.
+- Stops after **10 samples** in limited mode.

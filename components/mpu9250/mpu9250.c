@@ -46,48 +46,41 @@ static esp_err_t enable_magnetometer(void);
 
 esp_err_t i2c_mpu9250_init(calibration_t *c)
 {
-  ESP_LOGI(TAG, "Initializating MPU9250");
-  vTaskDelay(100 / portTICK_PERIOD_MS);
+    ESP_LOGI(TAG, "Initializing MPU9250");
 
-  ESP_ERROR_CHECK(i2c_master_init(I2C_MASTER_NUM, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO));
-  initialised = true;
-  cal = c;
+    // If already initialized, delete driver & reset state
+    if (initialised) {
+        ESP_LOGW(TAG, "MPU9250 already initialized — resetting");
+        i2c_driver_delete(I2C_MASTER_NUM);
+        initialised = false;
+    }
 
-  if (initialised)
-  {
-    ESP_LOGE(TAG, "i2c_mpu9250_init has already been called");
-    return ESP_ERR_INVALID_STATE;
-  }
+    ESP_ERROR_CHECK(i2c_master_init(I2C_MASTER_NUM, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO));
+    initialised = true;
+    cal = c;
 
-  ESP_LOGD(TAG, "i2c_mpu9250_init");
+    // Normal init sequence...
+    ESP_ERROR_CHECK(i2c_write_bit(I2C_MASTER_NUM, MPU9250_I2C_ADDR, MPU9250_RA_PWR_MGMT_1, MPU9250_PWR1_DEVICE_RESET_BIT, 1));
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-  ESP_ERROR_CHECK(i2c_write_bit(I2C_MASTER_NUM, MPU9250_I2C_ADDR, MPU9250_RA_PWR_MGMT_1, MPU9250_PWR1_DEVICE_RESET_BIT, 1));
-  vTaskDelay(10 / portTICK_PERIOD_MS);
+    ESP_ERROR_CHECK(set_clock_source(MPU9250_CLOCK_PLL_XGYRO));
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-  // define clock source
-  ESP_ERROR_CHECK(set_clock_source(MPU9250_CLOCK_PLL_XGYRO));
-  vTaskDelay(10 / portTICK_PERIOD_MS);
+    ESP_ERROR_CHECK(set_full_scale_gyro_range(MPU9250_GYRO_FS_250));
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-  // define gyro range
-  ESP_ERROR_CHECK(set_full_scale_gyro_range(MPU9250_GYRO_FS_250));
-  vTaskDelay(10 / portTICK_PERIOD_MS);
+    ESP_ERROR_CHECK(set_full_scale_accel_range(MPU9250_ACCEL_FS_4));
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-  // define accel range
-  ESP_ERROR_CHECK(set_full_scale_accel_range(MPU9250_ACCEL_FS_4));
-  vTaskDelay(10 / portTICK_PERIOD_MS);
+    ESP_ERROR_CHECK(set_sleep_enabled(false));
+    vTaskDelay(pdMS_TO_TICKS(10));
 
-  // disable sleepEnabled
-  ESP_ERROR_CHECK(set_sleep_enabled(false));
-  vTaskDelay(10 / portTICK_PERIOD_MS);
+    ESP_ERROR_CHECK(enable_magnetometer());
 
-  ESP_LOGD(TAG, "END of MPU9250 initialization");
-
-  ESP_ERROR_CHECK(enable_magnetometer());
-
-  print_settings();
-
-  return ESP_OK;
+    print_settings();
+    return ESP_OK;
 }
+
 
 esp_err_t set_clock_source(uint8_t adrs)
 {
@@ -375,7 +368,7 @@ esp_err_t set_i2c_master_mode(bool state)
 
 /**
  * @name get_gyro_power_settings
- */
+ */ 
 esp_err_t get_gyro_power_settings(power_settings_e *ps)
 {
   uint8_t byte;
