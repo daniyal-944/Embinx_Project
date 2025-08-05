@@ -74,4 +74,4 @@ idf.py flash monitor
 ### 3. Gyroscope Loop
 - Reads **X, Y, Z** angular velocity in **deg/s**.
 - Updates every **100 ms** using `vTaskDelay()`.
-- Stops after **10 samples** in limited mode.
+- Stops after **100 samples** in limited mode.
