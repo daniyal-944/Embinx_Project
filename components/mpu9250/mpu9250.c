@@ -49,7 +49,7 @@ esp_err_t i2c_mpu9250_init(calibration_t *c)
   ESP_LOGI(TAG, "Initializating MPU9250");
   vTaskDelay(100 / portTICK_PERIOD_MS);
 
-  int ret =  ESP_ERROR_CHECK(i2c_master_init(I2C_MASTER_NUM, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO));
+  ESP_ERROR_CHECK(i2c_master_init(I2C_MASTER_NUM, I2C_MASTER_SDA_IO, I2C_MASTER_SCL_IO));
   initialised = true;
   cal = c;
 
@@ -58,7 +58,6 @@ esp_err_t i2c_mpu9250_init(calibration_t *c)
     ESP_LOGE(TAG, "i2c_mpu9250_init has already been called");
     return ESP_ERR_INVALID_STATE;
   }
-  uint16_t data[2];
 
   ESP_LOGD(TAG, "i2c_mpu9250_init");
 
